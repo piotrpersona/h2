@@ -1,6 +1,6 @@
 # h2
 
-Heic 2 PNG converted.
+Heic 2 PNG converter.
 
 I use it for personal conversion of invoices photos done by IPhone.
 
