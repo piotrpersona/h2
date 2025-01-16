@@ -11,6 +11,6 @@ I use it for personal conversion of invoices photos done by IPhone.
 ## Installation
 
 ```sh
-go install github.com/piotrpersona/h2/cmd/h2@latest
+go install github.com/piotrpersona/h2@latest
 ```
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"h2img/internal/imageutils"
+
 	"image/png"
 	"log/slog"
 	"os"
@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/piotrpersona/h2/internal/imageutils"
 	"github.com/pkg/errors"
 )
 

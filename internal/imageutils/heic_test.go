@@ -2,11 +2,11 @@ package imageutils_test
 
 import (
 	_ "embed"
-	"h2img/internal/imageutils"
 	"image/jpeg"
 	"os"
 	"testing"
 
+	"github.com/piotrpersona/h2/internal/imageutils"
 	"github.com/stretchr/testify/require"
 )
 

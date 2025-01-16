@@ -1,4 +1,4 @@
-module h2img
+module github.com/piotrpersona/h2
 
 go 1.23.1
 
