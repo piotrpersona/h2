@@ -79,36 +79,41 @@ func main() {
 		go func() {
 			defer wg.Done()
 
-			for {
-				select {
-				case <-ctx.Done():
-					slog.Warn("stopping work", "reason", ctx.Err())
-					return
-				case event, ok := <-watcher.Events:
-					if !ok {
-						return
-					}
-					logger.Debug("received watcher event", "event", event)
-					if !proceed(event) {
-						continue
-					}
-					heicFilePath := event.Name
-					if err := convertHeicToPng(heicFilePath, *outputDir); err != nil {
-						slog.Error("cannot convert HEIC to PNG", "path", heicFilePath, "err", err)
-						continue
-					}
-					logger.Debug("converted HEIC to PNG", "outputDir", *outputDir)
-				case err, ok := <-watcher.Errors:
-					if !ok {
-						return
-					}
-					slog.Error("watcher error", "err", err)
-				}
-			}
+			startWorker(ctx, watcher, *outputDir)
 		}()
 	}
 
 	wg.Wait()
+}
+
+func startWorker(ctx context.Context, watcher *fsnotify.Watcher, outputDir string) {
+	for {
+		select {
+		case <-ctx.Done():
+			slog.Warn("stopping work", "reason", ctx.Err())
+			return
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
+			slog.Debug("received watcher event", "event", event)
+			if !proceed(event) {
+				continue
+			}
+			heicFilePath := event.Name
+			if err := convertHeicToPng(heicFilePath, outputDir); err != nil {
+				slog.Error("cannot convert HEIC to PNG", "path", heicFilePath, "err", err)
+				continue
+			}
+			slog.Debug("converted HEIC to PNG", "outputDir", outputDir)
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			slog.Error("watcher error", "err", err)
+		}
+	}
+
 }
 
 func proceed(event fsnotify.Event) bool {
