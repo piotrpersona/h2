@@ -5,9 +5,9 @@ import (
 	"flag"
 	"fmt"
 
-	"image/png"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path"
 	"path/filepath"
@@ -16,8 +16,6 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/piotrpersona/h2/internal/imageutils"
-	"github.com/pkg/errors"
 )
 
 func exit(err error) {
@@ -32,6 +30,7 @@ func main() {
 	outputDir := flag.String("output", "", "output directory to monitor")
 	workersCount := flag.Int("workers", 8, "number of workers watching the directory")
 	flag.Parse()
+	slog.SetLogLoggerLevel(slog.LevelDebug)
 
 	logsFileName := time.Now().Format("2006-01-02")
 	logsFileName = fmt.Sprintf("/tmp/h2img_%s.log", logsFileName)
@@ -122,24 +121,11 @@ func proceed(event fsnotify.Event) bool {
 }
 
 func convertHeicToPng(heicFilePath, outputDir string) error {
-	heicImage, err := imageutils.NewHeicDecoder().DecodeFromFile(heicFilePath)
-	if err != nil {
-		return errors.Wrapf(err, "cannot decode HEIC image from file '%s'", heicFilePath)
-	}
-
 	baseFile := path.Base(heicFilePath)
 	baseName := strings.TrimSuffix(baseFile, filepath.Ext(heicFilePath))
+
 	outputFileName := baseName + ".png"
 	outputFilePath := path.Join(outputDir, outputFileName)
 
-	outputFile, err := os.Create(outputFilePath)
-	if err != nil {
-		return errors.Wrapf(err, "cannot create output file '%s'", outputFilePath)
-	}
-	defer outputFile.Close()
-
-	if err := png.Encode(outputFile, heicImage); err != nil {
-		return errors.Wrapf(err, "cannot save HEIC image to output file '%s'", outputFilePath)
-	}
-	return nil
+	return exec.Command("magick", heicFilePath, outputFilePath).Err
 }
