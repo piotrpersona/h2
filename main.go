@@ -1,21 +1,18 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 
 	"log/slog"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path"
 	"path/filepath"
 	"strings"
-	"sync"
-	"time"
 
-	"github.com/fsnotify/fsnotify"
+	"github.com/schollz/progressbar/v3"
+	"golang.org/x/sync/errgroup"
 )
 
 func exit(err error) {
@@ -26,14 +23,11 @@ func exit(err error) {
 }
 
 func main() {
-	inputDir := flag.String("input", "", "input directory to monitor")
-	outputDir := flag.String("output", "", "output directory to monitor")
-	workersCount := flag.Int("workers", 8, "number of workers watching the directory")
+	inputDir := flag.String("input", "", "input directory with heic files")
+	outputDir := flag.String("output", "", "output directory with png files")
+	desiredExtension := flag.String("ext", "png", "desired extension to convert heic to")
 	flag.Parse()
 	slog.SetLogLoggerLevel(slog.LevelDebug)
-
-	logsFileName := time.Now().Format("2006-01-02")
-	logsFileName = fmt.Sprintf("/tmp/h2img_%s.log", logsFileName)
 
 	if inputDir == nil || *inputDir == "" {
 		slog.Warn("input dir must be provided")
@@ -44,88 +38,50 @@ func main() {
 		os.Exit(1)
 	}
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer cancel()
+	heicExtension := ".heic"
 
-	watcher, err := fsnotify.NewWatcher()
-	exit(err)
-	defer watcher.Close()
+	inputFiles := make([]string, 0)
 
-	err = watcher.Add(*inputDir)
-	exit(err)
-
-	doneCh := make(chan struct{})
-
-	logFile, err := os.Create(logsFileName)
-	exit(err)
-	defer logFile.Close()
-
-	logger := slog.New(slog.NewTextHandler(logFile, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	}))
-
-	logger = logger.With(
-		slog.String("path", *inputDir),
-	)
-
-	defer close(doneCh)
-	logger.Info("watching directory", "n_workers", *workersCount)
-
-	var wg sync.WaitGroup
-
-	for range *workersCount {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			startWorker(ctx, watcher, *outputDir)
-		}()
-	}
-
-	wg.Wait()
-}
-
-func startWorker(ctx context.Context, watcher *fsnotify.Watcher, outputDir string) {
-	for {
-		select {
-		case <-ctx.Done():
-			slog.Warn("stopping work", "reason", ctx.Err())
-			return
-		case event, ok := <-watcher.Events:
-			if !ok {
-				return
-			}
-			slog.Debug("received watcher event", "event", event)
-			if !proceed(event) {
-				continue
-			}
-			heicFilePath := event.Name
-			if err := convertHeicToPng(heicFilePath, outputDir); err != nil {
-				slog.Error("cannot convert HEIC to PNG", "path", heicFilePath, "err", err)
-				continue
-			}
-			slog.Debug("converted HEIC to PNG", "outputDir", outputDir)
-		case err, ok := <-watcher.Errors:
-			if !ok {
-				return
-			}
-			slog.Error("watcher error", "err", err)
+	err := filepath.Walk(*inputDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
 		}
+		if !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), heicExtension) {
+			inputFiles = append(inputFiles, path)
+		}
+		return nil
+	})
+	if err != nil {
+		slog.Warn("error while reading heic files")
+		os.Exit(1)
 	}
 
+	pbar := progressbar.NewOptions(len(inputFiles), progressbar.OptionSetDescription("Converting"))
+
+	var eg errgroup.Group
+	eg.SetLimit(4)
+
+	for _, inputFile := range inputFiles {
+		eg.Go(func() error {
+			defer pbar.Add(1)
+			return convertHeicToPng(inputFile, *outputDir, *desiredExtension)
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		slog.Error(err.Error())
+		os.Exit(1)
+	}
+	slog.Info("done!")
 }
 
-func proceed(event fsnotify.Event) bool {
-	return !event.Has(fsnotify.Create) &&
-		strings.ToLower(filepath.Ext(event.Name)) != ".heic"
-}
-
-func convertHeicToPng(heicFilePath, outputDir string) error {
+func convertHeicToPng(heicFilePath, outputDir, desiredExtension string) error {
 	baseFile := path.Base(heicFilePath)
 	baseName := strings.TrimSuffix(baseFile, filepath.Ext(heicFilePath))
 
-	outputFileName := baseName + ".png"
+	outputFileName := fmt.Sprintf("%s.%s", baseName, desiredExtension)
 	outputFilePath := path.Join(outputDir, outputFileName)
 
-	return exec.Command("magick", heicFilePath, outputFilePath).Err
+	slog.Debug("converting heic image", "extension", desiredExtension, "heic", heicFilePath, "output", outputFilePath)
+
+	return exec.Command("magick", heicFilePath, outputFilePath).Run()
 }
